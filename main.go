@@ -15,7 +15,7 @@ import (
 )
 
 type Todo struct {
-	ID        primitive.ObjectID `json:"id,omitempty" bson:"_id,omitempty"`
+	ID        primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
 	Completed bool               `json:"completed"`
 	Body      string             `json:"body"`
 }
@@ -25,10 +25,11 @@ var Id int = 0
 
 func main() {
 	fmt.Println("Hello World")
-
-	err := godotenv.Load(".env")
-	if err != nil {
-		log.Fatal("Error loading .env file", err)
+	if os.Getenv("ENV") != "production" {
+		err := godotenv.Load(".env")
+		if err != nil {
+			log.Fatal("Error loading .env file", err)
+		}
 	}
 
 	MONGODB_URI := os.Getenv("MONGODB_URI")
@@ -52,6 +53,11 @@ func main() {
 
 	app := fiber.New()
 
+	// app.Use(cors.New(cors.Config{
+	// 	AllowOrigins: "http://localhost:5173",
+	// 	AllowHeaders: "Origin,Content-Type,Accept",
+	// }))
+
 	app.Get("/api/todos", getTodos)
 	app.Post("/api/todos", createTodos)
 	app.Patch("/api/todos/:id", updateTodos)
@@ -60,6 +66,10 @@ func main() {
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "5000"
+	}
+
+	if os.Getenv("ENV") == "production" {
+		app.Static("/", "./client/dist")
 	}
 
 	log.Fatal(app.Listen("0.0.0.0:" + port))
@@ -115,7 +125,15 @@ func updateTodos(c *fiber.Ctx) error {
 	}
 
 	filter := bson.M{"_id": objectId}
-	update := bson.M{"$set": bson.M{"completed": true}}
+
+	var todo bson.M
+	err = collection.FindOne(context.Background(), filter).Decode(&todo)
+	if err != nil {
+		return c.Status(404).JSON(fiber.Map{"error": "todo not found"})
+	}
+
+	currentCompleted := todo["completed"].(bool)
+	update := bson.M{"$set": bson.M{"completed": !currentCompleted}}
 	_, err = collection.UpdateOne(context.Background(), filter, update)
 	if err != nil {
 		return err
